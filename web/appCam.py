@@ -4,6 +4,7 @@ import time
 import zmq
 import numpy as np
 import base64
+from processfuncs import tracked_frame_generator
 
 app = Flask(__name__)
 
@@ -39,10 +40,22 @@ def gen(camera):
             yield (b'--frame\r\n'
                b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n\r\n')
 
+def gen_jpg_transformer(frame_gen):
+    for frame in frame_gen:
+        _, buffer = cv2.imencode('.jpg', frame)
+        yield (b'--frame\r\n'
+                b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n\r\n')
+
 @app.route('/video_feed')
 def video_feed():
     return Response(gen(VideoCamera()),
                     mimetype='multipart/x-mixed-replace; boundary=frame')
+
+@app.route('/tracked_ball_feed')
+def tracked_ball_feed():
+    return Response(gen_jpg_transformer(tracked_frame_generator()),
+                mimetype='multipart/x-mixed-replace; boundary=frame')
+
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', threaded=True, debug=True)
