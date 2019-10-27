@@ -83,14 +83,82 @@ def frame_generator():
         source = cv2.imdecode(npimg, 1)
         yield source
 
+def distance_to_line( point, line_points):
+    (l1x, l1y) = line_points[0]
+    (l2x, l2y) = line_points[1]
+    (x,y,_) = point
+    dx = l2x - l1x
+    dy = l2y - l1y
+    dr2 = float(dx **2 + dy **2)
+    lerp = ((x - l1x) * dx + (y - l1y) * dy) / dr2
+    if lerp < 0:
+        lerp = 0
+    elif lerp > 1:
+        lerp = 1
+    newx = lerp * dx + l1x
+    newy = lerp * dy + l1y
+    _dx = newx - x
+    _dy = newy - y
+    return math.sqrt(_dx ** 2 + _dy ** 2)
+
+
+class GoalTracker():
+    def __init__(self, black_goal=((0,100), (0, 200)), yellow_goal=((480, 100), (460, 200))):
+        self.black_goals = 0
+        self.yellow_goals = 0
+        self.last_goal = None
+        self.goal_time = None
+        self.black_goal = black_goal
+        self.yellow_goal = yellow_goal
+        self.last_ball_position = None
+        self.goal_length = 3
+        self.goal_distance_threshold = 100
+        self.missed_frames_until_goal = 8
+        self.current_missed_frames = 0
+    def detect_goal(self, circle, time):
+        if self.goal_time is not None:
+            if time - self.goal_time < self.goal_length:
+                return (self.last_goal, self.black_goals, self.yellow_goals)
+            else:
+                self.goal_time = None
+                self.last_goal = None
+        if circle is not None:
+            self.last_ball_position = circle
+            self.current_missed_frames = 0
+            return (self.last_goal, self.black_goals, self.yellow_goals)
+        self.current_missed_frames += 1
+        if self.last_ball_position is not None and self.current_missed_frames > self.missed_frames_until_goal:
+            last_known_distance_black = distance_to_line(self.last_ball_position, self.black_goal)
+            if last_known_distance_black < self.goal_distance_threshold:
+                self.last_goal = 'BLACK'
+                self.goal_time = time
+                self.last_ball_position = None
+                self.black_goals += 1
+                return (self.last_goal, self.black_goals, self.yellow_goals)
+            last_known_distance_yellow = distance_to_line(self.last_ball_position, self.yellow_goal)
+            if last_known_distance_yellow < self.goal_distance_threshold:
+                self.last_goal = 'YELLOW'
+                self.goal_time = time
+                self.last_ball_position = None
+                self.yellow_goals += 1
+                return (self.last_goal, self.black_goals, self.yellow_goals)
+        return (self.last_goal, self.black_goals, self.yellow_goals)
+
 def tracked_frame_generator():
     velocity_tracker = VelocityTracker()
     frame_count = 0
     start = time.time()
+    black_goal=((2,150), (2, 350))
+    yellow_goal=((638, 150), (638, 350))
+    goal_tracker = GoalTracker(black_goal=black_goal, yellow_goal=yellow_goal)
     for frame in frame_generator():
         now = time.time()
         time_diff = now - start
         cv2.putText(frame, "{0:.2f} FPS".format(frame_count / time_diff), (450, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+        # draw black goal
+        cv2.line(frame, black_goal[0], black_goal[1], (0, 0, 0), 3)
+        # draw yellow goal
+        cv2.line(frame, yellow_goal[0], yellow_goal[1], (0, 255, 255), 3)
 
         # reset fps calc every 5 min... why not
         if time_diff > 300:
@@ -99,10 +167,19 @@ def tracked_frame_generator():
         frame_count += 1
         mask = maskImage(frame)
         ball = findBall(mask)
+        (current_goal, black_goals, yellow_goals) = goal_tracker.detect_goal(ball, now)
+        #black score
+        cv2.putText(frame, f'{black_goals}', (50, 400), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 0), 2)
+        #yellow score
+        cv2.putText(frame, f'{yellow_goals}', (600, 400), cv2.FONT_HERSHEY_SIMPLEX, 1, (124, 255, 255), 2)
+        #recent score
+        if current_goal:
+            cv2.putText(frame, f'{current_goal} GOAL', (180, 250), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 0, 0), 6)
+
         if ball is None:
             yield frame
             continue
-        velocity = velocity_tracker.get_velocity(ball, time.time())
+        velocity = velocity_tracker.get_velocity(ball, now)
         # apply layers to image to show ball/tet
         cv2.circle(frame, (ball[0], ball[1]), ball[2], (0, 255, 0), 4)
         if velocity is not None:
