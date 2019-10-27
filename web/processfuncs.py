@@ -85,7 +85,18 @@ def frame_generator():
 
 def tracked_frame_generator():
     velocity_tracker = VelocityTracker()
+    frame_count = 0
+    start = time.time()
     for frame in frame_generator():
+        now = time.time()
+        time_diff = now - start
+        cv2.putText(frame, "{0:.2f} FPS".format(frame_count / time_diff), (450, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+
+        # reset fps calc every 5 min... why not
+        if time_diff > 300:
+            frame_count = 0
+            start = now
+        frame_count += 1
         mask = maskImage(frame)
         ball = findBall(mask)
         if ball is None:
@@ -95,6 +106,6 @@ def tracked_frame_generator():
         # apply layers to image to show ball/tet
         cv2.circle(frame, (ball[0], ball[1]), ball[2], (0, 255, 0), 4)
         if velocity is not None:
-            cv2.putText(frame, "{0:.2f}".format(velocity), (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2)
+            cv2.putText(frame, "V:{0:.2f}".format(velocity), (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2)
         yield frame
 
